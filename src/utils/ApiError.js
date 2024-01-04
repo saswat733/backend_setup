@@ -1,3 +1,5 @@
+// it extends the inbuilt class Error
+
 class ApiError extends Error{
     constructor(
         statusCode,

@@ -26,7 +26,7 @@ connectDB()
 
 
 
-
+//first approach for connect to DB
 /*
 ;(async ()=>{
     try {
