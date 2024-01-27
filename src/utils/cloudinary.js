@@ -1,29 +1,37 @@
-import {v2 as cloudinary} from 'cloudinary';
+import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs'
 
-          
-cloudinary.config({ 
-    cloud_name: process.env.CLOUDINARY_CLOUD, 
-    api_key: process.env.CLUDINARY_API_KEY, 
-    api_secret:  process.env.CLOUDINARY_API_SECRET
-  });
 
-const uploadOnCloudinary=async (localFilePath)=>{
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+const uploadOnCloudinary = async (localFilePath) => {
     try {
-        if(!localFilePath){
-            return null
+        if (!localFilePath) {
+            return null;
         }
-        //upload the file on clodinary
-        const response= await cloudinary.uploader.upload(localFilePath,{
-        resource_type:"auto"
-        })
-        //file has been uploaded successfully
-        console.log("file is uploaded on cloudinary",response.url)
-        return response
+
+        // Upload the file on Cloudinary
+        const response = await cloudinary.uploader.upload(localFilePath, {
+            resource_type: "auto"
+        });
+
+        // File has been uploaded successfully
+        console.log("File is uploaded on Cloudinary", response.url);
+        return response;
     } catch (error) {
-        fs.unlinkSync(localFilePath)  //remove the locally saved temporary file as the upload operation got failed
+        console.error("Error uploading file to Cloudinary:", error.message);
+
+        // Remove the locally saved temporary file as the upload operation failed
+        fs.unlinkSync(localFilePath);
+
+        // Handle the error appropriately based on your application's requirements
+        // You can choose to return a default value or throw an error
+        // return null; // Or throw new Error("Upload failed");
     }
-}
+};
 
 
 export default uploadOnCloudinary
