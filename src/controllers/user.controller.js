@@ -91,23 +91,31 @@ import jwt from 'jsonwebtoken'
 
 // })
 
-const generateAccessAndRefreshToken=async(userId)=>{
-    try{
-        //find user on id basis
-        const user=await User.findById(userId)
-        //generate refresh and access token
-        const accessToken=user.generateAccessToken()
-        const refreshToken=user.generateRefreshToken()
+const generateAccessAndRefreshToken = async (userId) => {
+    try {
+        // find user on id basis
+        const user = await User.findById(userId);
 
-        //stores refresh token in databases
-        user.refreshToken=refreshToken
-        await user.save({validateBeforeSave:false})
+        if (!user) {
+            console.log("User not found");
+            throw new ApiError(404, "User not found");
+        }
 
-        return {accessToken,refreshToken}
-    }catch(error){
-        throw new ApiError(500,"something went wrong while generating refresh and access token")
+        // generate refresh and access token
+        const accessToken = user.generateAccessToken();
+        const refreshToken = user.generateRefreshToken();
+
+        // store refresh token in the database
+        user.refreshToken = refreshToken;
+        await user.save({ validateBeforeSave: false });
+
+        return { accessToken, refreshToken };
+    } catch (error) {
+        console.error("Error in generateAccessAndRefreshToken:", error);
+        throw new ApiError(500, "Something went wrong while generating refresh and access token");
     }
-}
+};
+
 const registerUser = asyncHandler(async (req, res) => {
     const { fullname, username, email, password } = req.body;
 
@@ -183,6 +191,8 @@ const loginUser=asyncHandler(async (req,res)=>{
     const user= await User.findOne({
         $or:[{username},{email}]
     })
+    console.log("username",username)
+    console.log("password",password)
 
     if(!user){
         throw new ApiError(400,"user does not exists")
@@ -210,7 +220,7 @@ const loginUser=asyncHandler(async (req,res)=>{
     .cookie("accessToken",accessToken,options)
     .cookie("refreshToken",refreshToken,options)
     .json(
-        new ApResponse(
+        new ApiResponse(
             200,
             {
                 user:loggedInUser,accessToken,
@@ -333,7 +343,7 @@ const updateAccountDetails= asyncHandler(async(req,res)=>{
         throw new ApiError(400,"all fields are required")
     }
 
-    const user = User.findByIdAndUpdate(
+    const user =await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set:{
@@ -346,7 +356,9 @@ const updateAccountDetails= asyncHandler(async(req,res)=>{
 
 
     return res.status(200)
-    .json(new ApiResponse(200,"Accpunt Details udpdated succesfully"))
+    .json(new ApiResponse(200,
+        req.user,
+        "Accpunt Details udpdated succesfully"))
 })
 
 const updateUserAvatar= asyncHandler(async(req,res)=>{
@@ -374,7 +386,9 @@ const updateUserAvatar= asyncHandler(async(req,res)=>{
 
     return res.status(200)
     .json(
-        new ApiResponse(200,"avatar image update succesfully")
+        new ApiResponse(200,
+            req.user,
+            "avatar image update succesfully")
     )
 })
 
@@ -385,13 +399,13 @@ const updateUserCoverImage= asyncHandler(async(req,res)=>{
         throw new ApiError(400,"cover image file is missing")
     }
 
-    const coverImage=await uploadOnCloudinary(CoverImageLocalPath)
+    const coverImage=await uploadOnCloudinary(coverImageLocalPath)
 
     if(!coverImage.url){
         throw new ApiError(400,"Error while uploading on Cover Image")
     }
 
-    const user = User.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set:{
@@ -406,6 +420,130 @@ const updateUserCoverImage= asyncHandler(async(req,res)=>{
         new ApiResponse(200,"cover image update succesfully")
     )
 })
+
+
+const getUserchannelProfile= asyncHandler(async(req,res)=>{
+    const {username}=req.params
+
+    if(!username?.trim()){
+        throw new ApiError(400,"username is missing")
+    }
+
+    const channel = await User.aggregate([
+        {
+            $match:{
+                username:username?.toLowerCase()
+            }
+        },
+        {
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"channel",
+                as:"subscribers"
+            }
+        },
+        {
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"channel",
+                as:"subscribedTo"
+            }
+        },
+        {
+            $addFields:{
+                subscribersCount:{
+                    $size:"$subscribers"
+                },
+                channelsSubscribedToCount:{
+                    $size:"$subscribedTo"
+                },
+                isSubscribed:{
+                    $cond:{
+                        if:{
+                            $in:[req.user?._id,"$subscribers.subscriber"]
+                        },
+                        then:true,
+                        else:false
+                    }
+                }
+
+            }
+        },
+        {
+            $project:{
+                fullname:1,
+                username:1,
+                subscribersCount:1,
+                channelsSubscribedToCount:1,
+                isSubscribed:1,
+                avatar:1,
+                coverImage:1,
+                email:1,
+
+            }
+        }
+    ])
+    console.log(channel)
+    if(!channel?.length){
+        throw new ApiError(404,"channel does not exists")
+    }
+
+
+    return res.status(200).
+    json(new ApiResponse(200,channel[0],"user channel fetched successfully"))
+})
+
+
+const getWatchHistory=asyncHandler(async(req,res)=>{
+    const user=await User.aggregate([
+        {
+            $match:{
+                _id:new mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup:{
+                from:"videos",
+                localField:"watchHistory",
+                foreignField:"_id",
+                as:"watchHistory",
+                pipeline:[
+                    {
+                        $lookup:{
+                            from:"users",
+                            localField:"owner",
+                            foreignField:"_id",
+                            as:"owner",
+                            pipeline:[
+                                {
+                                    $project:{
+                                        fullname:1,
+                                        username:1,
+                                        avatar:1
+                                    }
+
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $addFields:{
+                            owner:{
+                                $first:"$owner"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ])
+
+    return res.status(200).json(
+        new ApiResponse(200,user[0].watchHistory,"wathc history fetched sucessesfully")
+    )
+})
 export {registerUser,
     loginUser,
     logoutUser,
@@ -414,5 +552,67 @@ export {registerUser,
     refreshAccessToken,
     updateAccountDetails,
     updateUserAvatar,
-    updateUserCoverImage
+    updateUserCoverImage,
+    getUserchannelProfile,
+    getWatchHistory
 }
+
+
+
+
+    // registerUser:
+    //     Handles user registration.
+    //     Validates required fields (fullname, email, username, password).
+    //     Checks if the user already exists.
+    //     Uploads avatar and cover image to Cloudinary.
+    //     Creates a new user in the database.
+    //     Returns a JSON response with the created user data.
+
+    // loginUser:
+    //     Handles user login.
+    //     Validates whether either username or email is provided.
+    //     Finds the user based on the provided username or email.
+    //     Checks the password validity.
+    //     Generates access and refresh tokens.
+    //     Sets cookies with the tokens.
+    //     Returns a JSON response with the logged-in user data.
+
+    // logoutUser:
+    //     Handles user logout.
+    //     Clears the access and refresh tokens cookies.
+    //     Returns a JSON response indicating successful logout.
+
+    // refreshAccessToken:
+    //     Handles the refresh of the access token using the provided refresh token.
+    //     Verifies the incoming refresh token.
+    //     Generates a new access token and refresh token pair.
+    //     Sets cookies with the new tokens.
+    //     Returns a JSON response with the new tokens.
+
+    // changeCurrentPassword:
+    //     Handles the change of the current user's password.
+    //     Validates the old password.
+    //     Updates the password in the database.
+    //     Returns a JSON response indicating successful password change.
+
+    // getCurrentUser:
+    //     Returns the current user's data.
+    //     Excludes sensitive information like the password and refresh token.
+    //     Returns a JSON response with the current user's data.
+
+    // updateAccountDetails:
+    //     Handles the update of the current user's account details (fullname and email).
+    //     Validates that both fields are provided.
+    //     Updates the user's details in the database.
+    //     Returns a JSON response indicating successful account details update.
+
+    // updateUserAvatar and updateUserCoverImage:
+    //     Handle the update of the current user's avatar and cover image, respectively.
+    //     Uploads the new image to Cloudinary.
+    //     Updates the user's profile with the new image URL.
+    //     Returns a JSON response indicating successful image update.
+
+    // getUserchannelProfile:
+    //     Fetches the profile of a user's channel based on the provided username.
+    //     Uses MongoDB's aggregation pipeline to gather information about the user and their subscribers.
+    //     Returns a JSON response with the user's channel profile.
