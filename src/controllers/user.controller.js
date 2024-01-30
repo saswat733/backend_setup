@@ -4,7 +4,7 @@ import { User } from "../models/user.models.js"
 import uploadOnCloudinary from '../utils/cloudinary.js'
 import { ApiResponse } from "../utils/ApiResponse.js"
 import jwt from 'jsonwebtoken'
-
+import mongoose from "mongoose"
 // const registerUser= asyncHandler(async (req,res)=>{
 //     // step-1: get user detail from frontend
 //     // step-2: validation whether the provided details are correct
@@ -236,8 +236,14 @@ const logoutUser=asyncHandler(async(req,res)=>{
     User.findByIdAndUpdate(
         req.user._id,
         {
-            $set:{
-                refreshToken:undefined
+            // This MongoDB operation is used to find and update the user document in the database. It sets the refreshToken field to undefined. The new: true option returns the modified document.
+
+            // $set:{
+            //     refreshToken:undefined
+            // }
+
+            $unset:{
+                refreshToken:1 //this removes the field from document
             }
         },{
           new:true  
@@ -312,7 +318,7 @@ const refreshAccessToken=asyncHandler(async (req,res)=>{
 
 const changeCurrentPassword= asyncHandler(async(req,res)=>{
     const {oldPassword,newPassword} =req.body
-
+    console.log(oldPassword)
     const user=await User.findById(req.user?._id)
     const isPasswordCorrect=await user.isPasswordCorrect(oldPassword)
 
@@ -324,7 +330,8 @@ const changeCurrentPassword= asyncHandler(async(req,res)=>{
 
     await user.save({validateBeforeSave: false})
 
-    return res.status(200)
+    return res
+    .status(200)
     .json(new ApiResponse(200,{},"Password Changed Successfully"))
 })
 
@@ -332,7 +339,8 @@ const changeCurrentPassword= asyncHandler(async(req,res)=>{
 const getCurrentUser= asyncHandler(async(req,res)=>{
     return res
     .status(200)
-    .json(200,req.user,"current user fetched successfully")
+    .json(new ApiResponse(200,req.user,"current user fetched successfully"))
+    // return res.status(201).json(new ApiResponse(200, createdUser, "User created successfully"));
 })
 
 
@@ -358,7 +366,7 @@ const updateAccountDetails= asyncHandler(async(req,res)=>{
     return res.status(200)
     .json(new ApiResponse(200,
         req.user,
-        "Accpunt Details udpdated succesfully"))
+        "Account Details udpdated succesfully"))
 })
 
 const updateUserAvatar= asyncHandler(async(req,res)=>{
@@ -371,7 +379,7 @@ const updateUserAvatar= asyncHandler(async(req,res)=>{
     const avatar=await uploadOnCloudinary(avatarLocalPath)
 
     if(!avatar.url){
-        throw new ApiError(400,"Error while uploading on avataer")
+        throw new ApiError(400,"Error while uploading on cloudinary")
     }
 
     const user = User.findByIdAndUpdate(
@@ -382,7 +390,7 @@ const updateUserAvatar= asyncHandler(async(req,res)=>{
             }
         },
         {new:true}
-    ).select("-password")
+    ).select("-password")   //excluding user credential password
 
     return res.status(200)
     .json(
@@ -428,7 +436,7 @@ const getUserchannelProfile= asyncHandler(async(req,res)=>{
     if(!username?.trim()){
         throw new ApiError(400,"username is missing")
     }
-
+    // console.log(username)
     const channel = await User.aggregate([
         {
             $match:{
@@ -447,7 +455,7 @@ const getUserchannelProfile= asyncHandler(async(req,res)=>{
             $lookup:{
                 from:"subscriptions",
                 localField:"_id",
-                foreignField:"channel",
+                foreignField:"subscriber",
                 as:"subscribedTo"
             }
         },
@@ -459,13 +467,11 @@ const getUserchannelProfile= asyncHandler(async(req,res)=>{
                 channelsSubscribedToCount:{
                     $size:"$subscribedTo"
                 },
-                isSubscribed:{
-                    $cond:{
-                        if:{
-                            $in:[req.user?._id,"$subscribers.subscriber"]
-                        },
-                        then:true,
-                        else:false
+                isSubscribed: {
+                    $cond: {
+                        if: {$in: [req.user?._id, "$subscribers.subscriber"]},
+                        then: true,
+                        else: false
                     }
                 }
 
